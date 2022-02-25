@@ -41,6 +41,36 @@ for (i in 1:10) {
 
 #one-trial-at-a-time transport
 
+#Cox Proportional Hazards Model
+tables <- NULL
+for (k in 1:10) {
+  pred <- numeric(10)
+  true <- numeric(10)
+  study <- numeric(10)
+  fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study == levels(colon0$study)[k],])
+  for (i in 1:10) {
+    c2<-colon0[colon0$study == levels(colon0$study)[i],]
+    c2$hr<-1-survfit(fit1,newdata=c2)$surv[nrow(survfit(fit1,newdata=c2)$surv),]
+    c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
+    pred[i]<-c3[2,2]-c3[1,2]
+    fit2<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study == levels(colon0$study)[i],])
+    c2$hr<-1-survfit(fit2,newdata=c2)$surv[nrow(survfit(fit2,newdata=c2)$surv),]
+    c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
+    true[i]<-c3[2,2]-c3[1,2]
+  }
+  tables <- rbind(tables, cbind(pred[-k],true[-k],k,study[-k]))
+}
+tables<-as.data.frame(tables)
+colnames(tables) <- c("HD_pred", "HD_true",'model','target')
+tables$PE<-(tables$HD_pred-tables$HD_true)^2
+#study level PE
+tables %>%
+  group_by(model) %>%
+  dplyr::summarise(mean = mean(PE))
+#overall PE
+tables %>%
+  dplyr::summarise(mean = mean(PE))
+
 #Additive Hazards Regression Model
 tables <- NULL
 for (k in 1:10) {
@@ -140,7 +170,7 @@ for (k in 1:10) {
   pred <- numeric(10)
   true <- numeric(10)
   study <- numeric(10)
-  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "independence",data=colon0,subset=(colon0$study == levels(colon0$study)[k]))
+  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "ind",B=0,data=colon0,subset=(colon0$study == levels(colon0$study)[k]))
   for (i in 1:10) {
     c2<-colon0[colon0$study == levels(colon0$study)[i],]
     xb<-coef(fit1)[1]+coef(fit1)[2]*I(c2$tx==2)+coef(fit1)[3]*c2$age+coef(fit1)[4]*I(c2$gender==1)
@@ -148,7 +178,7 @@ for (k in 1:10) {
     c3<-aggregate(c2$ettf, list(c2$tx), FUN=mean)
     pred[i]<-c3[2,2]-c3[1,2]
     
-    fit2<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "independence",data=colon0,subset=(colon0$study == levels(colon0$study)[i]))
+    fit2<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "ind",B=0,data=colon0,subset=(colon0$study == levels(colon0$study)[i]))
     xb<-coef(fit2)[1]+coef(fit2)[2]*I(c2$tx==2)+coef(fit2)[3]*c2$age+coef(fit2)[4]*I(c2$gender==1)
     c2$ettf<-exp(xb)
     c3<-aggregate(c2$ettf, list(c2$tx), FUN=mean)
@@ -169,6 +199,32 @@ tables %>%
   dplyr::summarise(mean = mean(PE))
 
 #left-one-trial-out transport
+
+#Cox Proportional Hazards Model
+tables <- NULL
+for (k in 1:10) {
+    fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],])
+    c2<-colon0[colon0$study == levels(colon0$study)[k],]
+    c2$hr<-1-survfit(fit1,newdata=c2)$surv[nrow(survfit(fit1,newdata=c2)$surv),]
+    c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
+    pred<-c3[2,2]-c3[1,2]
+    fit2<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study == levels(colon0$study)[k],])
+    c2$hr<-1-survfit(fit2,newdata=c2)$surv[nrow(survfit(fit2,newdata=c2)$surv),]
+    c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
+    true<-c3[2,2]-c3[1,2]
+    tables <- rbind(tables, cbind(pred,true,-k,k))
+}
+tables<-as.data.frame(tables)
+colnames(tables) <- c("HD_pred", "HD_true",'model','target')
+tables$PE<-(tables$HD_pred-tables$HD_true)^2
+#study level PE
+tables %>%
+  group_by(model) %>%
+  dplyr::summarise(mean = mean(PE))%>%
+  arrange(desc(model))
+#overall PE
+tables %>%
+  dplyr::summarise(mean = mean(PE))
 
 #Additive Hazards Regression Model
 tables <- NULL
@@ -254,14 +310,14 @@ tables %>%
 #AFT Model-semiparametric
 tables <- NULL
 for (k in 1:10) {
-  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "independence",B=0,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "ind",B=0,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
   c2<-colon0[colon0$study == levels(colon0$study)[k],]
   xb<-coef(fit1)[1]+coef(fit1)[2]*I(c2$tx==2)+coef(fit1)[3]*c2$age+coef(fit1)[4]*I(c2$gender==1)
   c2$ettf<-exp(xb)
   c3<-aggregate(c2$ettf, list(c2$tx), FUN=mean)
   pred<-c3[2,2]-c3[1,2]
     
-  fit2<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "independence",B=0,data=colon0,subset=(colon0$study == levels(colon0$study)[k]))
+  fit2<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "ind",B=0,data=colon0,subset=(colon0$study == levels(colon0$study)[k]))
   xb<-coef(fit2)[1]+coef(fit2)[2]*I(c2$tx==2)+coef(fit2)[3]*c2$age+coef(fit2)[4]*I(c2$gender==1)
   c2$ettf<-exp(xb)
   c3<-aggregate(c2$ettf, list(c2$tx), FUN=mean)
@@ -282,6 +338,34 @@ tables %>%
   dplyr::summarise(mean = mean(PE))
 
 #meta-analysis
+
+#Cox Proportional Hazards Model
+tables <- NULL
+for (k in 1:10) {
+  fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],])
+  c2<-colon0[colon0$study != levels(colon0$study)[k],]
+  c2$hr<-1-survfit(fit1,newdata=c2)$surv[nrow(survfit(fit1,newdata=c2)$surv),]
+  c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
+  pred<-c3[2,2]-c3[1,2]
+  fit2<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study == levels(colon0$study)[k],])
+  c2<-colon0[colon0$study == levels(colon0$study)[k],]
+  c2$hr<-1-survfit(fit2,newdata=c2)$surv[nrow(survfit(fit2,newdata=c2)$surv),]
+  c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
+  true<-c3[2,2]-c3[1,2]
+  tables <- rbind(tables, cbind(pred,true,-k,k))
+}
+tables<-as.data.frame(tables)
+colnames(tables) <- c("HD_pred", "HD_true",'model','target')
+tables$PE<-(tables$HD_pred-tables$HD_true)^2
+#study level PE
+tables %>%
+  group_by(model) %>%
+  dplyr::summarise(mean = mean(PE)) %>%
+  arrange(desc(model))
+#overall PE
+tables %>%
+  dplyr::summarise(mean = mean(PE))
+
 
 #Additive Hazards Regression Model
 tables <- NULL
@@ -307,7 +391,7 @@ tables %>%
 #AFT Model-lognormal
 tables <- NULL
 for (k in 1:10) {
-  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,dist="lognormal",data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender+study,dist="lognormal",data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
   c2<-colon0[colon0$study != levels(colon0$study)[k],]
   pre<-predict(fit1)
   c3<-aggregate(pre, list(c2$tx), FUN=mean)
@@ -336,7 +420,7 @@ tables %>%
 #AFT Model-weibull
 tables <- NULL
 for (k in 1:10) {
-  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender+study,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
   c2<-colon0[colon0$study != levels(colon0$study)[k],]
   pre<-predict(fit1)
   c3<-aggregate(pre, list(c2$tx), FUN=mean)
@@ -365,18 +449,16 @@ tables %>%
 #AFT Model-semiparametric
 tables <- NULL
 for (k in 1:10) {
-  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "independence",B=0,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = study,corstr = "ind",B=0,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
   c2<-colon0[colon0$study != levels(colon0$study)[k],]
-  xb<-coef(fit1)[1]+coef(fit1)[2]*I(c2$tx==2)+coef(fit1)[3]*c2$age+coef(fit1)[4]*I(c2$gender==1)
-  c2$ettf<-exp(xb)
-  c3<-aggregate(c2$ettf, list(c2$tx), FUN=mean)
+  pre<-unlist(predict(fit1))
+  c3<-aggregate(pre, list(c2$tx), FUN=mean)
   pred<-c3[2,2]-c3[1,2]
   
-  fit2<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "independence",B=0,data=colon0,subset=(colon0$study == levels(colon0$study)[k]))
+  fit2<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "ind",B=0,data=colon0,subset=(colon0$study == levels(colon0$study)[k]))
   c2<-colon0[colon0$study == levels(colon0$study)[k],]
-  xb<-coef(fit2)[1]+coef(fit2)[2]*I(c2$tx==2)+coef(fit2)[3]*c2$age+coef(fit2)[4]*I(c2$gender==1)
-  c2$ettf<-exp(xb)
-  c3<-aggregate(c2$ettf, list(c2$tx), FUN=mean)
+  pre<-unlist(predict(fit2))
+  c3<-aggregate(pre, list(c2$tx), FUN=mean)
   true<-c3[2,2]-c3[1,2]
   
   tables <- rbind(tables, cbind(pred,true,-k,k))
@@ -392,4 +474,3 @@ tables %>%
 #overall PE
 tables %>%
   dplyr::summarise(mean = mean(PE))
-
