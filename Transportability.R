@@ -7,38 +7,52 @@ library(aftgee)
 library(table1)
 library(addhazard)
 
+set.seed(123)
+
 # R code for reading in Dan Sargent's colon cancer dataset
 colon <- read.csv("/Users/sushi5824907/Desktop/RA 2021/Debashis/colon040909.csv",header=F,skip=2)
 names(colon) <- c("study","tx","clintx","age","stage","gender","daterand","recurstat","recurtime","dfsstat","dfstime","dstat","dtime")
+
 #subset stage III 
 colon0<-colon[which(colon$stage==3),]
+
 #number of subjects in each treatment group
 colon0 %>% 
   group_by(tx)%>%
   dplyr::summarise(n = n())
+
 #convert to character
 colon0$tx <- as.factor(colon0$tx)
 colon0$study <- as.factor(colon0$study)
 colon0$gender <- as.factor(colon0$gender)
+
 #convert time to year
 colon0$dyear <- colon0$dtime/365
+
 #5 years of follow-up is considered in the analysis
 colon0$dyear5<-ifelse(colon0$dyear<=5,colon0$dyear,5)
 colon0<-colon0[colon0$dyear5 > 0,]
 colon0$dstat<-ifelse(colon0$dyear5<colon0$dyear & colon0$dstat==1,0,colon0$dstat)
+
 #subject ID
 colon0$ID <- seq_along(colon0[,1])
 
 #covariates summary table by study
 table1(~ age+gender | study, data=colon0)
+
 #KM plots
-par(mfrow=c(2,5),mar = c(2.5, 2.5, 2.5, 2.5))
+par(mfrow=c(2,5),mar = c(1.5, 1.5, 1.5, 1.5))
 for (i in 1:10) {
-  plot(survfit(Surv(dyear5,dstat)~tx,data=colon0,subset=(colon0$study == levels(colon0$study)[i])),lty=1:2,col=c('black','red'),cex.axis=1.5)
+  surv<-survfit(Surv(dyear5,dstat)~tx,data=colon0,subset=(colon0$study == levels(colon0$study)[i]))
+  plot(surv,lty=1:2,col=c('black','red'),cex.axis=1.5)
   tmp <- survdiff(Surv(dyear5,dstat)~tx,data=colon0,subset=(colon0$study == levels(colon0$study)[i]))
-  title(main=paste(levels(colon0$study)[i],"\nLog-rank \nstatistic = ",round(tmp$chisq,2)),line=-20,cex.main = 2)
+  title(main=paste(levels(colon0$study)[i],"\nLog-rank test \nP-value = ",round(1-as.numeric(pchisq(tmp$chisq, 1)),3)),line=-21,cex.main = 2)
 }
 
+#KM plots for control
+#  plot(survfit(Surv(dyear5,dstat)~study,data=colon0,subset=(colon0$tx == 1)),col = c(1,2,3,4,5,6,7,8,9,10),)
+#  plot(survfit(Surv(dyear5,dstat)~study,data=colon0,subset=(colon0$tx == 2)),col = c(1,2,3,4,5,6,7,8,9,10),)
+  
 #one-trial-at-a-time transport
 
 #Cox Proportional Hazards Model
@@ -198,12 +212,12 @@ tables %>%
 tables %>%
   dplyr::summarise(mean = mean(PE))
 
-#left-one-trial-out transport
+#left-one-trial-out
 
 #Cox Proportional Hazards Model
 tables <- NULL
 for (k in 1:10) {
-    fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],])
+    fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],],cluster=study)
     c2<-colon0[colon0$study == levels(colon0$study)[k],]
     c2$hr<-1-survfit(fit1,newdata=c2)$surv[nrow(survfit(fit1,newdata=c2)$surv),]
     c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
@@ -229,7 +243,9 @@ tables %>%
 #Additive Hazards Regression Model
 tables <- NULL
 for (k in 1:10) {
-  fit1<-ah(Surv(dyear5_,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],],robust=F,ties=F)
+  colon0$dyear5_ <- colon0$dyear5 + runif(dim(colon0)[1],0,1)*1e-8
+  fit1<-ah(Surv(dyear5_,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],],robust=T,ties=F)
+  summary(fit1)
   c2<-colon0[colon0$study == levels(colon0$study)[k],]
   c2$hd<-fit1$coef[1]*I(c2$tx==2)+fit1$coef[2]*c2$age+fit1$coef[3]*I(c2$gender==1)
   c3<-aggregate(c2$hd, list(c2$tx), FUN=mean)
@@ -254,7 +270,8 @@ tables %>%
 #AFT Model-lognormal
 tables <- NULL
 for (k in 1:10) {
-  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,dist="lognormal",data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,dist="lognormal",data=colon0,subset=(colon0$study != levels(colon0$study)[k]),cluster=study)
+  summary(fit1)
   c2<-colon0[colon0$study == levels(colon0$study)[k],]
   pre<-predict(fit1,newdata=c2)
   c3<-aggregate(pre, list(c2$tx), FUN=mean)
@@ -282,7 +299,7 @@ tables %>%
 #AFT Model-weibull
 tables <- NULL
 for (k in 1:10) {
-  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,data=colon0,subset=(colon0$study != levels(colon0$study)[k]),cluster=study)
   c2<-colon0[colon0$study == levels(colon0$study)[k],]
   pre<-predict(fit1,newdata=c2)
   c3<-aggregate(pre, list(c2$tx), FUN=mean)
@@ -310,7 +327,7 @@ tables %>%
 #AFT Model-semiparametric
 tables <- NULL
 for (k in 1:10) {
-  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = ID,corstr = "ind",B=0,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-aftgee(Surv(dyear5,dstat)~tx+age+gender,id = study,corstr = "ind",B=0,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
   c2<-colon0[colon0$study == levels(colon0$study)[k],]
   xb<-coef(fit1)[1]+coef(fit1)[2]*I(c2$tx==2)+coef(fit1)[3]*c2$age+coef(fit1)[4]*I(c2$gender==1)
   c2$ettf<-exp(xb)
@@ -342,7 +359,7 @@ tables %>%
 #Cox Proportional Hazards Model
 tables <- NULL
 for (k in 1:10) {
-  fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],])
+  fit1<-coxph(Surv(dyear5,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],],cluster=study)
   c2<-colon0[colon0$study != levels(colon0$study)[k],]
   c2$hr<-1-survfit(fit1,newdata=c2)$surv[nrow(survfit(fit1,newdata=c2)$surv),]
   c3<-aggregate(c2$hr, list(c2$tx), FUN=mean)
@@ -370,7 +387,8 @@ tables %>%
 #Additive Hazards Regression Model
 tables <- NULL
 for (k in 1:10) {
-  fit1<-ah(Surv(dyear5_,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],],robust=F,ties=F)
+  colon0$dyear5_ <- colon0$dyear5 + runif(dim(colon0)[1],0,1)*1e-8
+  fit1<-ah(Surv(dyear5_,dstat)~tx+age+gender,data=colon0[colon0$study != levels(colon0$study)[k],],robust=T,ties=F)
   pred<-fit1$coef[1]
   fit2<-ah(Surv(dyear5_,dstat)~tx+age+gender,data=colon0[colon0$study == levels(colon0$study)[k],],robust=F,ties=F)
   true<-fit2$coef[1]
@@ -391,7 +409,7 @@ tables %>%
 #AFT Model-lognormal
 tables <- NULL
 for (k in 1:10) {
-  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender+study,dist="lognormal",data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,dist="lognormal",data=colon0,subset=(colon0$study != levels(colon0$study)[k]),cluster=study)
   c2<-colon0[colon0$study != levels(colon0$study)[k],]
   pre<-predict(fit1)
   c3<-aggregate(pre, list(c2$tx), FUN=mean)
@@ -420,7 +438,7 @@ tables %>%
 #AFT Model-weibull
 tables <- NULL
 for (k in 1:10) {
-  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender+study,data=colon0,subset=(colon0$study != levels(colon0$study)[k]))
+  fit1<-survreg(Surv(dyear5,dstat)~tx+age+gender,data=colon0,subset=(colon0$study != levels(colon0$study)[k]),cluster=study)
   c2<-colon0[colon0$study != levels(colon0$study)[k],]
   pre<-predict(fit1)
   c3<-aggregate(pre, list(c2$tx), FUN=mean)
